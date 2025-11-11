@@ -1,0 +1,7 @@
+#Version: 1.5
+#Fields: date time action protocol src-ip dst-ip src-port dst-port size tcpflags tcpsyn tcpack tcpwin icmp-type icmp-code info path
+2025-11-10 23:33:40 ALLOW TCP 192.168.1.10 142.250.190.46 49852 443 0 - - - - - - - -
+2025-11-10 23:34:05 DROP UDP 203.0.113.5 192.168.1.10 137 137 60 - - - - - - - -
+2025-11-10 23:34:10 ALLOW TCP 192.168.1.10 151.101.1.69 49853 80 0 - - - - - - - -
+2025-11-10 23:34:20 DROP TCP 198.51.100.7 192.168.1.10 34567 22 0 - - - - - - - -
+

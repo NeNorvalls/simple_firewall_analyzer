@@ -1,0 +1,2 @@
+timestamp,src,dst,proto,sport,dport,action,source
+2025-11-10 23:34:20,198.51.100.7,192.168.1.10,TCP,34567,22,DROP,WINDOWS_FIREWALL

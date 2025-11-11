@@ -1,0 +1,12 @@
+Section,Key,Value
+Actions,Action,Count
+ACTION,DROP,1
+
+Top Source IPs,IP,Hits
+TOP_SRC,198.51.100.7,1
+
+Top Destination Ports,Port,Hits
+TOP_DPORT,22,1
+
+Suspicious IPs (>= 1 blocked),IP,Blocked Hits / Rep
+SUSPICIOUS,198.51.100.7,1 (rep=private)
