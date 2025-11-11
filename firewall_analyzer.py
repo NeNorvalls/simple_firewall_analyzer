@@ -3,6 +3,8 @@ import re
 import sys
 import csv
 import ipaddress
+import json
+from datetime import datetime
 from collections import Counter
 from html import escape as html_escape
 
@@ -442,16 +444,39 @@ def export_summary_to_csv(stats, filename, top_n: int, block_threshold: int):
     print(f"{green('Exported summary')} to {filename}")
 
 
-# --- HTML Report ------------------------------------------------------
+# --- HTML Report with Chart.js ----------------------------------------
 
 
 def export_html_report(stats, filename, top_n: int, block_threshold: int):
     """
-    Generate a simple HTML dashboard report.
+    Generate an HTML dashboard report with charts using Chart.js.
     """
+
     def esc(s):
         return html_escape(str(s))
 
+    # Optional logo URL or file (leave empty for none)
+    logo_url = ""  # e.g. "logo.png" or "https://example.com/logo.png"
+
+    # Prepare data for charts
+    actions = stats["action_counter"]
+    protocols = stats["proto_counter"]
+    top_src = stats["src_counter"].most_common(top_n)
+    top_dports = stats["dport_counter"].most_common(top_n)
+
+    actions_labels = list(actions.keys())
+    actions_values = list(actions.values())
+
+    proto_labels = list(protocols.keys())
+    proto_values = list(protocols.values())
+
+    src_labels = [ip for ip, _ in top_src]
+    src_values = [count for _, count in top_src]
+
+    dport_labels = [port for port, _ in top_dports]
+    dport_values = [count for _, count in top_dports]
+
+    # Filters string
     filters = stats.get("filters", {})
     active_filters = []
     if filters.get("only_blocked"):
@@ -463,82 +488,8 @@ def export_html_report(stats, filename, top_n: int, block_threshold: int):
     if filters.get("dst_ip"):
         active_filters.append(f"dst_ip={filters['dst_ip']}")
 
-    html_parts = []
-    html_parts.append("<!DOCTYPE html>")
-    html_parts.append("<html><head><meta charset='utf-8'><title>Firewall Report</title>")
-    html_parts.append(
-        "<style>"
-        "body{font-family:Arial, sans-serif;background:#111;color:#eee;padding:20px;}"
-        "h1,h2,h3{color:#4caf50;}"
-        "table{border-collapse:collapse;margin-bottom:20px;width:100%;max-width:900px;}"
-        "th,td{border:1px solid #444;padding:6px 8px;font-size:0.9rem;text-align:left;}"
-        "th{background:#222;}"
-        "tr:nth-child(even){background:#181818;}"
-        ".badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:0.8rem;}"
-        ".allow{background:#2e7d32;color:#fff;}"
-        ".block{background:#c62828;color:#fff;}"
-        ".meta{color:#aaa;font-size:0.9rem;}"
-        "</style></head><body>"
-    )
-    html_parts.append("<h1>Simple Firewall Log Analyzer</h1>")
-
-    html_parts.append("<p class='meta'>")
-    html_parts.append(f"Total lines in file(s): {esc(stats['total_lines'])}<br>")
-    html_parts.append(f"Successfully parsed (after filters): {esc(stats['parsed_lines'])}<br>")
-    if active_filters:
-        html_parts.append("Active filters: " + esc(", ".join(active_filters)))
-    html_parts.append("</p>")
-
-    if stats["source_counter"]:
-        html_parts.append("<h2>Log formats detected</h2>")
-        html_parts.append("<table><tr><th>Source</th><th>Entries</th></tr>")
-        for src, count in stats["source_counter"].most_common():
-            html_parts.append(f"<tr><td>{esc(src)}</td><td>{esc(count)}</td></tr>")
-        html_parts.append("</table>")
-
-    # Actions table
-    html_parts.append("<h2>Actions summary</h2>")
-    html_parts.append("<table><tr><th>Action</th><th>Count</th></tr>")
-    for action, count in stats["action_counter"].most_common():
-        cls = "badge "
-        if action in {"BLOCK", "DROP", "DENY"}:
-            cls += "block"
-        elif action == "ALLOW":
-            cls += "allow"
-        else:
-            cls += "meta"
-        html_parts.append(
-            f"<tr><td><span class='{cls}'>{esc(action)}</span></td><td>{esc(count)}</td></tr>"
-        )
-    html_parts.append("</table>")
-
-    # Top source IPs
-    html_parts.append(f"<h2>Top {top_n} Source IPs</h2>")
-    html_parts.append("<table><tr><th>Source IP</th><th>Hits</th></tr>")
-    for ip, count in stats["src_counter"].most_common(top_n):
-        html_parts.append(f"<tr><td>{esc(ip)}</td><td>{esc(count)}</td></tr>")
-    html_parts.append("</table>")
-
-    # Top destination ports
-    html_parts.append(f"<h2>Top {top_n} Destination Ports</h2>")
-    html_parts.append("<table><tr><th>Port</th><th>Hits</th></tr>")
-    for port, count in stats["dport_counter"].most_common(top_n):
-        html_parts.append(f"<tr><td>{esc(port)}</td><td>{esc(count)}</td></tr>")
-    html_parts.append("</table>")
-
-    # Protocol usage
-    html_parts.append("<h2>Protocol Usage</h2>")
-    html_parts.append("<table><tr><th>Protocol</th><th>Entries</th></tr>")
-    for proto, count in stats["proto_counter"].most_common():
-        html_parts.append(f"<tr><td>{esc(proto)}</td><td>{esc(count)}</td></tr>")
-    html_parts.append("</table>")
-
     # Suspicious IPs
-    html_parts.append(
-        f"<h2>Suspicious IPs (≥ {esc(block_threshold)} blocked attempts)</h2>"
-    )
-    html_parts.append("<table><tr><th>IP</th><th>Blocked Hits</th><th>Reputation</th></tr>")
-    any_suspicious = False
+    suspicious_rows = []
     for ip, count in stats["blocked_by_src"].most_common():
         if count >= block_threshold:
             rep = classify_ip(ip)
@@ -546,14 +497,201 @@ def export_html_report(stats, filename, top_n: int, block_threshold: int):
             rep_str = rep
             if ext_rep:
                 rep_str += f", external={ext_rep}"
+            suspicious_rows.append((ip, count, rep_str))
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    html_parts = []
+    html_parts.append("<!DOCTYPE html>")
+    html_parts.append("<html><head><meta charset='utf-8'><title>Firewall Report</title>")
+    html_parts.append("<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>")
+    html_parts.append(
+        "<style>"
+        "body{font-family:Arial, sans-serif;background:#111;color:#eee;padding:20px;}"
+        "h1,h2,h3{color:#4caf50;}"
+        "table{border-collapse:collapse;margin-bottom:20px;width:100%;max-width:1000px;}"
+        "th,td{border:1px solid #444;padding:6px 8px;font-size:0.9rem;text-align:left;}"
+        "th{background:#222;}"
+        "tr:nth-child(even){background:#181818;}"
+        ".badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:0.8rem;}"
+        ".allow{background:#2e7d32;color:#fff;}"
+        ".block{background:#c62828;color:#fff;}"
+        ".meta{color:#aaa;font-size:0.9rem;}"
+        ".layout{display:flex;flex-wrap:wrap;gap:24px;margin-top:10px;}"
+        ".card{background:#121212;border:1px solid #333;border-radius:10px;padding:12px;flex:1 1 300px;}"
+        "canvas{max-width:100%;height:260px !important;}"
+        "footer{margin-top:30px;font-size:0.8rem;color:#777;}"
+        "</style></head><body>"
+    )
+
+    # Header
+    html_parts.append("<header style='display:flex;align-items:center;gap:16px;margin-bottom:20px;'>")
+    if logo_url:
+        html_parts.append(
+            f"<img src='{esc(logo_url)}' alt='Logo' style='height:48px;width:auto;border-radius:8px;'>"
+        )
+    html_parts.append("<div>")
+    html_parts.append("<h1>Simple Firewall Log Analyzer</h1>")
+    html_parts.append(
+        f"<p class='meta'>Total lines in file(s): {esc(stats['total_lines'])}<br>"
+        f"Successfully parsed (after filters): {esc(stats['parsed_lines'])}</p>"
+    )
+    if active_filters:
+        html_parts.append(
+            "<p class='meta'>Active filters: " + esc(", ".join(active_filters)) + "</p>"
+        )
+    html_parts.append("</div></header>")
+
+    # Log formats detected
+    if stats["source_counter"]:
+        html_parts.append("<h2>Log formats detected</h2>")
+        html_parts.append("<table><tr><th>Source</th><th>Entries</th></tr>")
+        for src, count in stats["source_counter"].most_common():
+            html_parts.append(f"<tr><td>{esc(src)}</td><td>{esc(count)}</td></tr>")
+        html_parts.append("</table>")
+
+    # Charts layout
+    html_parts.append("<div class='layout'>")
+
+    # Actions chart
+    html_parts.append("<div class='card'><h2>Actions summary</h2>")
+    html_parts.append("<canvas id='actionsChart'></canvas></div>")
+
+    # Protocols chart
+    html_parts.append("<div class='card'><h2>Protocol usage</h2>")
+    html_parts.append("<canvas id='protocolsChart'></canvas></div>")
+
+    # Top source IPs chart
+    html_parts.append("<div class='card'><h2>Top source IPs</h2>")
+    html_parts.append("<canvas id='srcChart'></canvas></div>")
+
+    # Top destination ports chart
+    html_parts.append("<div class='card'><h2>Top destination ports</h2>")
+    html_parts.append("<canvas id='dportChart'></canvas></div>")
+
+    html_parts.append("</div>")  # end layout
+
+    # Suspicious IPs table
+    html_parts.append(
+        f"<h2>Suspicious IPs (≥ {esc(block_threshold)} blocked attempts)</h2>"
+    )
+    html_parts.append("<table><tr><th>IP</th><th>Blocked Hits</th><th>Reputation</th></tr>")
+    if suspicious_rows:
+        for ip, count, rep_str in suspicious_rows:
             html_parts.append(
                 f"<tr><td>{esc(ip)}</td><td>{esc(count)}</td><td>{esc(rep_str)}</td></tr>"
             )
-            any_suspicious = True
-    if not any_suspicious:
-        html_parts.append("<tr><td colspan='3' class='meta'>(none at this threshold)</td></tr>")
+    else:
+        html_parts.append(
+            "<tr><td colspan='3' class='meta'>(none at this threshold)</td></tr>"
+        )
     html_parts.append("</table>")
 
+    # Footer
+    html_parts.append(
+        f"<footer>Report generated at {esc(generated_at)}</footer>"
+    )
+
+    # JS data for charts
+    html_parts.append("<script>")
+    html_parts.append(f"const actionsLabels = {json.dumps(actions_labels)};")
+    html_parts.append(f"const actionsValues = {json.dumps(actions_values)};")
+    html_parts.append(f"const protoLabels = {json.dumps(proto_labels)};")
+    html_parts.append(f"const protoValues = {json.dumps(proto_values)};")
+    html_parts.append(f"const srcLabels = {json.dumps(src_labels)};")
+    html_parts.append(f"const srcValues = {json.dumps(src_values)};")
+    html_parts.append(f"const dportLabels = {json.dumps(dport_labels)};")
+    html_parts.append(f"const dportValues = {json.dumps(dport_values)};")
+
+    html_parts.append(
+        """
+// Helper to generate a palette of colors
+function generateColors(n) {
+  const baseColors = [
+    '#4caf50','#ff9800','#2196f3','#e91e63','#9c27b0',
+    '#00bcd4','#ffc107','#03a9f4','#8bc34a','#f44336'
+  ];
+  const colors = [];
+  for (let i = 0; i < n; i++) {
+    colors.push(baseColors[i % baseColors.length]);
+  }
+  return colors;
+}
+
+function createChart(ctxId, type, labels, data, optionsExtra) {
+  const canvas = document.getElementById(ctxId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!labels.length) return;
+
+  const colors = generateColors(labels.length);
+  return new Chart(ctx, {
+    type: type,
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: colors,
+        borderColor: '#111',
+        borderWidth: 1,
+      }]
+    },
+    options: Object.assign({
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {
+        duration: 900,
+        easing: 'easeOutCubic'
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#eee'
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#ddd' },
+          grid: { color: '#333' }
+        },
+        y: {
+          ticks: { color: '#ddd' },
+          grid: { color: '#333' },
+          beginAtZero: true
+        }
+      }
+    }, optionsExtra || {})
+  });
+}
+
+window.addEventListener('load', () => {
+  createChart('actionsChart', 'doughnut', actionsLabels, actionsValues, {
+    plugins: {
+      legend: { position: 'bottom', labels: { color: '#eee' } }
+    },
+    scales: {}
+  });
+
+  createChart('protocolsChart', 'pie', protoLabels, protoValues, {
+    plugins: {
+      legend: { position: 'bottom', labels: { color: '#eee' } }
+    },
+    scales: {}
+  });
+
+  createChart('srcChart', 'bar', srcLabels, srcValues, {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } }
+  });
+
+  createChart('dportChart', 'bar', dportLabels, dportValues, {
+    plugins: { legend: { display: false } }
+  });
+});
+"""
+    )
+    html_parts.append("</script>")
     html_parts.append("</body></html>")
 
     with open(filename, "w", encoding="utf-8") as f:

@@ -1,41 +1,125 @@
 <!DOCTYPE html>
 <html><head><meta charset='utf-8'><title>Firewall Report</title>
-<style>body{font-family:Arial, sans-serif;background:#111;color:#eee;padding:20px;}h1,h2,h3{color:#4caf50;}table{border-collapse:collapse;margin-bottom:20px;width:100%;max-width:900px;}th,td{border:1px solid #444;padding:6px 8px;font-size:0.9rem;text-align:left;}th{background:#222;}tr:nth-child(even){background:#181818;}.badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:0.8rem;}.allow{background:#2e7d32;color:#fff;}.block{background:#c62828;color:#fff;}.meta{color:#aaa;font-size:0.9rem;}</style></head><body>
+<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+<style>body{font-family:Arial, sans-serif;background:#111;color:#eee;padding:20px;}h1,h2,h3{color:#4caf50;}table{border-collapse:collapse;margin-bottom:20px;width:100%;max-width:1000px;}th,td{border:1px solid #444;padding:6px 8px;font-size:0.9rem;text-align:left;}th{background:#222;}tr:nth-child(even){background:#181818;}.badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:0.8rem;}.allow{background:#2e7d32;color:#fff;}.block{background:#c62828;color:#fff;}.meta{color:#aaa;font-size:0.9rem;}.layout{display:flex;flex-wrap:wrap;gap:24px;margin-top:10px;}.card{background:#121212;border:1px solid #333;border-radius:10px;padding:12px;flex:1 1 300px;}canvas{max-width:100%;height:260px !important;}footer{margin-top:30px;font-size:0.8rem;color:#777;}</style></head><body>
+<header style='display:flex;align-items:center;gap:16px;margin-bottom:20px;'>
+<div>
 <h1>Simple Firewall Log Analyzer</h1>
-<p class='meta'>
-Total lines in file(s): 7<br>
-Successfully parsed (after filters): 4<br>
-</p>
+<p class='meta'>Total lines in file(s): 7<br>Successfully parsed (after filters): 4</p>
+</div></header>
 <h2>Log formats detected</h2>
 <table><tr><th>Source</th><th>Entries</th></tr>
 <tr><td>WINDOWS_FIREWALL</td><td>4</td></tr>
 </table>
-<h2>Actions summary</h2>
-<table><tr><th>Action</th><th>Count</th></tr>
-<tr><td><span class='badge allow'>ALLOW</span></td><td>2</td></tr>
-<tr><td><span class='badge block'>DROP</span></td><td>2</td></tr>
-</table>
-<h2>Top 10 Source IPs</h2>
-<table><tr><th>Source IP</th><th>Hits</th></tr>
-<tr><td>192.168.1.10</td><td>2</td></tr>
-<tr><td>203.0.113.5</td><td>1</td></tr>
-<tr><td>198.51.100.7</td><td>1</td></tr>
-</table>
-<h2>Top 10 Destination Ports</h2>
-<table><tr><th>Port</th><th>Hits</th></tr>
-<tr><td>443</td><td>1</td></tr>
-<tr><td>137</td><td>1</td></tr>
-<tr><td>80</td><td>1</td></tr>
-<tr><td>22</td><td>1</td></tr>
-</table>
-<h2>Protocol Usage</h2>
-<table><tr><th>Protocol</th><th>Entries</th></tr>
-<tr><td>TCP</td><td>3</td></tr>
-<tr><td>UDP</td><td>1</td></tr>
-</table>
-<h2>Suspicious IPs (≥ 1 blocked attempts)</h2>
+<div class='layout'>
+<div class='card'><h2>Actions summary</h2>
+<canvas id='actionsChart'></canvas></div>
+<div class='card'><h2>Protocol usage</h2>
+<canvas id='protocolsChart'></canvas></div>
+<div class='card'><h2>Top source IPs</h2>
+<canvas id='srcChart'></canvas></div>
+<div class='card'><h2>Top destination ports</h2>
+<canvas id='dportChart'></canvas></div>
+</div>
+<h2>Suspicious IPs (≥ 20 blocked attempts)</h2>
 <table><tr><th>IP</th><th>Blocked Hits</th><th>Reputation</th></tr>
-<tr><td>203.0.113.5</td><td>1</td><td>private</td></tr>
-<tr><td>198.51.100.7</td><td>1</td><td>private</td></tr>
+<tr><td colspan='3' class='meta'>(none at this threshold)</td></tr>
 </table>
+<footer>Report generated at 2025-11-11 01:36:26</footer>
+<script>
+const actionsLabels = ["ALLOW", "DROP"];
+const actionsValues = [2, 2];
+const protoLabels = ["TCP", "UDP"];
+const protoValues = [3, 1];
+const srcLabels = ["192.168.1.10", "203.0.113.5", "198.51.100.7"];
+const srcValues = [2, 1, 1];
+const dportLabels = ["443", "137", "80", "22"];
+const dportValues = [1, 1, 1, 1];
+
+// Helper to generate a palette of colors
+function generateColors(n) {
+  const baseColors = [
+    '#4caf50','#ff9800','#2196f3','#e91e63','#9c27b0',
+    '#00bcd4','#ffc107','#03a9f4','#8bc34a','#f44336'
+  ];
+  const colors = [];
+  for (let i = 0; i < n; i++) {
+    colors.push(baseColors[i % baseColors.length]);
+  }
+  return colors;
+}
+
+function createChart(ctxId, type, labels, data, optionsExtra) {
+  const canvas = document.getElementById(ctxId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!labels.length) return;
+
+  const colors = generateColors(labels.length);
+  return new Chart(ctx, {
+    type: type,
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: colors,
+        borderColor: '#111',
+        borderWidth: 1,
+      }]
+    },
+    options: Object.assign({
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {
+        duration: 900,
+        easing: 'easeOutCubic'
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#eee'
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#ddd' },
+          grid: { color: '#333' }
+        },
+        y: {
+          ticks: { color: '#ddd' },
+          grid: { color: '#333' },
+          beginAtZero: true
+        }
+      }
+    }, optionsExtra || {})
+  });
+}
+
+window.addEventListener('load', () => {
+  createChart('actionsChart', 'doughnut', actionsLabels, actionsValues, {
+    plugins: {
+      legend: { position: 'bottom', labels: { color: '#eee' } }
+    },
+    scales: {}
+  });
+
+  createChart('protocolsChart', 'pie', protoLabels, protoValues, {
+    plugins: {
+      legend: { position: 'bottom', labels: { color: '#eee' } }
+    },
+    scales: {}
+  });
+
+  createChart('srcChart', 'bar', srcLabels, srcValues, {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } }
+  });
+
+  createChart('dportChart', 'bar', dportLabels, dportValues, {
+    plugins: { legend: { display: false } }
+  });
+});
+
+</script>
 </body></html>
